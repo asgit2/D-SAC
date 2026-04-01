@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deployment Stack Console</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding: 20px 0;
+        }
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 24px;
+        }
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-running {
+            background-color: #28a745;
+            color: white;
+        }
+        .status-failed {
+            background-color: #dc3545;
+            color: white;
+        }
+        .status-pending {
+            background-color: #ffc107;
+            color: black;
+        }
+        .status-unknown {
+            background-color: #6c757d;
+            color: white;
+        }
+        .deployment-card {
+            border-left: 4px solid #dc3545;
+            transition: box-shadow 0.3s ease;
+        }
+        .deployment-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .pod-status-icon {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .loading-spinner {
+            display: none;
+        }
+        .cluster-selector {
+            margin-bottom: 20px;
+        }
+        .stats-card {
+            text-align: center;
+            padding: 20px;
+        }
+        .stats-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stats-label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="bi bi-cloud-check"></i> Deployment Stack Console
+            </span>
+            <span style="color: white; font-size: 14px;">
+                <i class="bi bi-circle-fill" id="status-indicator" style="color: gray;"></i>
+                <span id="status-text">Initializing...</span>
+            </span>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container-fluid mt-4">
+        <!-- Cluster Selector -->
+        <div class="cluster-selector">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="clusterSelect" class="form-label">Select Cluster</label>
+                    <select class="form-select" id="clusterSelect">
+                        <option value="">Loading clusters...</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button class="btn btn-primary w-100" id="refreshBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="row mb-4" id="statsContainer">
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="totalDeployments">0</div>
+                    <div class="stats-label">Total Deployments</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="failedDeployments">0</div>
+                    <div class="stats-label">Failed Deployments</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="totalPods">0</div>
+                    <div class="stats-label">Total Pods</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="failedPods">0</div>
+                    <div class="stats-label">Failed Pods</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Failed Deployments Section -->
+        <div class="row">
+            <div class="col-12">
+                <h4 class="mb-3">
+                    <i class="bi bi-exclamation-triangle-fill" style="color: #dc3545;"></i>
+                    Failed Deployments
+                </h4>
+                <div id="failedDeploymentsContainer">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> No failed deployments detected
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- All Deployments Section -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <h4 class="mb-3">
+                    <i class="bi bi-app"></i> All Deployments
+                </h4>
+                <div id="deploymentsContainer">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Select a cluster to view deployments
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pods Section -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <h4 class="mb-3">
+                    <i class="bi bi-box-seam"></i> Pods Overview
+                </h4>
+                <div id="podsContainer">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Select a cluster to view pods
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployment Detail Modal -->
+    <div class="modal fade" id="deploymentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deploymentModalTitle">Deployment Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="deploymentDetails"></div>
+                    <hr>
+                    <h6>Logs</h6>
+                    <div class="btn-group mb-3" role="group">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLogs('API_LOG')">
+                            <i class="bi bi-download"></i> API Logs
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLogs('AGENT_LOG')">
+                            <i class="bi bi-download"></i> Agent Logs
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLogs('CONTAINER_LOG')">
+                            <i class="bi bi-download"></i> Container Logs
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="downloadAllLogs()">
+                            <i class="bi bi-cloud-download"></i> Download All
+                        </button>
+                    </div>
+                    <div id="logsContainer" class="log-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentDeploymentId = null;
+        let currentClusterId = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadClusters();
+            document.getElementById('clusterSelect').addEventListener('change', handleClusterChange);
+            document.getElementById('refreshBtn').addEventListener('click', refreshData);
+            loadFailedDeployments();
+        });
+
+        function loadClusters() {
+            fetch('/api/clusters')
+                .then(resp => resp.json())
+                .then(clusters => {
+                    const select = document.getElementById('clusterSelect');
+                    select.innerHTML = '<option value="">Select a cluster...</option>';
+                    clusters.forEach(cluster => {
+                        const option = document.createElement('option');
+                        option.value = cluster.id;
+                        option.textContent = `${cluster.name} (${cluster.status})`;
+                        select.appendChild(option);
+                    });
+                })
+                .catch(err => {
+                    console.error('Error loading clusters:', err);
+                    updateStatus('disconnected');
+                });
+        }
+
+        function handleClusterChange() {
+            const clusterId = document.getElementById('clusterSelect').value;
+            if (clusterId) {
+                currentClusterId = clusterId;
+                loadDeploymentsByCluster(clusterId);
+                updateStats(clusterId);
+            }
+        }
+
+        function loadDeploymentsByCluster(clusterId) {
+            fetch(`/api/deployments/cluster/${clusterId}`)
+                .then(resp => resp.json())
+                .then(deployments => {
+                    displayDeployments(deployments);
+                    updateStatus('connected');
+                })
+                .catch(err => {
+                    console.error('Error loading deployments:', err);
+                    document.getElementById('deploymentsContainer').innerHTML = 
+                        '<div class="alert alert-danger">Error loading deployments</div>';
+                    updateStatus('error');
+                });
+        }
+
+        function loadFailedDeployments() {
+            fetch('/api/deployments')
+                .then(resp => resp.json())
+                .then(deployments => {
+                    if (deployments.length === 0) {
+                        document.getElementById('failedDeploymentsContainer').innerHTML = 
+                            '<div class="alert alert-success"><i class="bi bi-check-circle"></i> No failed deployments</div>';
+                    } else {
+                        displayFailedDeployments(deployments);
+                    }
+                })
+                .catch(err => console.error('Error loading failed deployments:', err));
+        }
+
+        function displayDeployments(deployments) {
+            const container = document.getElementById('deploymentsContainer');
+            if (deployments.length === 0) {
+                container.innerHTML = '<div class="alert alert-info">No deployments found</div>';
+                return;
+            }
+
+            container.innerHTML = deployments.map(d => `
+                <div class="card deployment-card mb-3 ${d.isFailed ? 'border-danger' : ''}">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>${d.deploymentName}</h6>
+                                <small class="text-muted">Namespace: ${d.namespace}</small>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <span class="status-badge ${getStatusClass(d.status)}">${d.status}</span>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <small>
+                                Ready: <strong>${d.readyReplicas || 0}/${d.replicas || 0}</strong> | 
+                                Updated: <strong>${d.updatedReplicas || 0}</strong> | 
+                                Available: <strong>${d.availableReplicas || 0}</strong>
+                            </small>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="showDeploymentDetails(${d.id})">
+                                <i class="bi bi-eye"></i> View Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function displayFailedDeployments(deployments) {
+            const container = document.getElementById('failedDeploymentsContainer');
+            if (deployments.length === 0) {
+                container.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> No failed deployments</div>';
+                return;
+            }
+
+            container.innerHTML = deployments.map(d => `
+                <div class="alert alert-danger alert-dismissible fade show">
+                    <strong><i class="bi bi-exclamation-triangle"></i> ${d.deploymentName}</strong>
+                    <br>
+                    <small>Cluster: ${d.clusterName} | Namespace: ${d.namespace}</small>
+                    <br>
+                    <small>Ready: ${d.readyReplicas}/${d.replicas}</small>
+                    <button type="button" class="btn btn-sm btn-outline-danger mt-2" onclick="showDeploymentDetails(${d.id})">
+                        <i class="bi bi-arrow-right"></i> View & Download Logs
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function showDeploymentDetails(deploymentId) {
+            currentDeploymentId = deploymentId;
+            fetch(`/api/deployments/${deploymentId}`)
+                .then(resp => resp.json())
+                .then(deployment => {
+                    document.getElementById('deploymentModalTitle').textContent = 
+                        `${deployment.deploymentName} - Logs & Details`;
+                    document.getElementById('deploymentDetails').innerHTML = `
+                        <p><strong>Deployment:</strong> ${deployment.deploymentName}</p>
+                        <p><strong>Cluster:</strong> ${deployment.clusterName}</p>
+                        <p><strong>Namespace:</strong> ${deployment.namespace}</p>
+                        <p><strong>Status:</strong> <span class="status-badge ${getStatusClass(deployment.status)}">${deployment.status}</span></p>
+                        <p><strong>Replicas:</strong> ${deployment.readyReplicas}/${deployment.replicas}</p>
+                        <p><strong>Last Updated:</strong> ${new Date(deployment.lastUpdateTime).toLocaleString()}</p>
+                    `;
+                    const modal = new bootstrap.Modal(document.getElementById('deploymentModal'));
+                    modal.show();
+                })
+                .catch(err => console.error('Error loading deployment details:', err));
+        }
+
+        function loadLogs(logType) {
+            if (!currentDeploymentId) return;
+            
+            fetch(`/api/logs/deployment/${currentDeploymentId}/type/${logType}`)
+                .then(resp => resp.json())
+                .then(logs => {
+                    const container = document.getElementById('logsContainer');
+                    if (logs.length === 0) {
+                        container.innerHTML = `<div class="alert alert-info">No ${logType} logs found</div>`;
+                    } else {
+                        container.innerHTML = logs.map(log => `
+                            <div style="margin-bottom: 10px; padding: 10px; background: white; border-radius: 3px;">
+                                <small style="color: #666;">
+                                    <strong>${log.logType}</strong> | ${log.severity} | ${new Date(log.logTimestamp).toLocaleString()}
+                                </small>
+                                <pre style="margin: 5px 0; font-size: 12px; max-height: 100px; overflow-y: auto;">${escapeHtml(log.logContent)}</pre>
+                            </div>
+                        `).join('');
+                    }
+                })
+                .catch(err => console.error('Error loading logs:', err));
+        }
+
+        function downloadAllLogs() {
+            if (!currentDeploymentId) return;
+            window.location.href = `/api/logs/deployment/${currentDeploymentId}/download`;
+        }
+
+        function updateStats(clusterId) {
+            fetch(`/api/clusters/${clusterId}`)
+                .then(resp => resp.json())
+                .then(cluster => {
+                    document.getElementById('totalDeployments').textContent = cluster.deploymentsCount;
+                    document.getElementById('failedDeployments').textContent = cluster.deploymentsCount;
+                    document.getElementById('totalPods').textContent = cluster.podsCount;
+                    document.getElementById('failedPods').textContent = cluster.failedPodsCount;
+                })
+                .catch(err => console.error('Error updating stats:', err));
+        }
+
+        function refreshData() {
+            loadClusters();
+            loadFailedDeployments();
+            if (currentClusterId) {
+                handleClusterChange();
+            }
+        }
+
+        function updateStatus(status) {
+            const indicator = document.getElementById('status-indicator');
+            const text = document.getElementById('status-text');
+            
+            switch(status) {
+                case 'connected':
+                    indicator.style.color = '#28a745';
+                    text.textContent = 'Connected';
+                    break;
+                case 'disconnected':
+                    indicator.style.color = '#ffc107';
+                    text.textContent = 'Disconnected';
+                    break;
+                case 'error':
+                    indicator.style.color = '#dc3545';
+                    text.textContent = 'Error';
+                    break;
+                default:
+                    indicator.style.color = '#6c757d';
+                    text.textContent = 'Initializing...';
+            }
+        }
+
+        function getStatusClass(status) {
+            if (status === 'Successful') return 'status-running';
+            if (status === 'Failed') return 'status-failed';
+            if (status === 'Pending') return 'status-pending';
+            return 'status-unknown';
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            if (currentClusterId) {
+                loadFailedDeployments();
+                handleClusterChange();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>
