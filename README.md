@@ -42,7 +42,7 @@ A comprehensive Spring Boot-based Kubernetes cluster monitoring and log manageme
 
 ### 1. Clone or Extract the Project
 ```bash
-cd /Users/abhishek/code/Ghosh-tenable-connector
+cd {Dir Path}
 ```
 
 ### 2. Configure Kubernetes Access
